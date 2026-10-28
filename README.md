@@ -55,7 +55,6 @@ Fontes PlantUML ([C4-PlantUML](https://github.com/plantuml-stdlib/C4-PlantUML)) 
 | L3 — inventory-service | [L3-inventory-service.puml](docs/c4/L3-inventory-service.puml) · [SVG](docs/c4/L3-inventory-service.svg) |
 | L3 — external-simulators | [L3-external-simulators.puml](docs/c4/L3-external-simulators.puml) · [SVG](docs/c4/L3-external-simulators.svg) |
 
-Para regerar os SVGs: `java -jar plantuml.jar -tsvg docs/c4/*.puml`.
 
 ## A saga
 
