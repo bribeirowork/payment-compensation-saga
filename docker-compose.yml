@@ -54,14 +54,12 @@ services:
       timeout: 5s
       retries: 20
 
-  # Sistemas "que não são seus": SEFAZ e gateway de pagamento (PSP), simulados.
   external-simulators:
     build: ./external-simulators
     container_name: external-simulators
     ports:
       - "8090:8090"
     environment:
-      # Prazo legal de cancelamento da NF-e. Reduza (ex.: PT30S) para ver o cancelamento extemporâneo.
       SIMULATOR_SEFAZ_CANCELLATION_DEADLINE: PT24H
 
   payment-service:
@@ -73,7 +71,6 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/payment
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       PSP_URL: http://external-simulators:8090/psp
-      # No artigo: "se a captura não confirmar em 20h, cancele a NF-e". Aqui encurtado para a demo.
       CHECKOUT_CAPTURE_DEADLINE: PT60S
     depends_on:
       kafka:
@@ -89,7 +86,6 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/inventory
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      # Caso 4: publica cada evento DUAS vezes (simula redelivery após rebalance).
       OUTBOX_SIMULATE_DUPLICATE_DELIVERY: "true"
     depends_on:
       kafka:
