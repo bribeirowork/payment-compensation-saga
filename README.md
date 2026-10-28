@@ -4,7 +4,7 @@ Código que acompanha o artigo **"Rollback não existe em Event Sourcing: Saga, 
 
 É um checkout de e-commerce em microsserviços Java 21 / Spring Boot 3, com Kafka (retry topics + DLQ), PostgreSQL, Clean Architecture + DDD, e os 7 casos de falha do artigo reproduzíveis com um `curl`.
 
-O código (classes, atributos, tópicos, tabelas e endpoints) está em inglês; a documentação e os comentários estão em português. Veja o [glossário](#glossário-artigo--código) para ligar os termos do artigo aos nomes no código.
+
 
 ## Ecossistema
 
