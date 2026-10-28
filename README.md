@@ -39,7 +39,7 @@ flowchart LR
 | **payment-service** | Domínio de **Pagamento** (`Payment`, event-sourced) e a **Checkout Saga**, que orquestra o fluxo e **solicita a emissão da NF-e** | `payment` |
 | **fiscal-document-gateway** | O **único** serviço que fala com a SEFAZ: emite, consulta e cancela NF-e (evento 110111) | `fiscal` |
 | **inventory-service** | Reserva e libera estoque | `inventory` |
-| **external-simulators** | O que "não é seu": SEFAZ e gateway de pagamento (PSP), com cenários de falha | — |
+| **external-simulators** | SEFAZ e gateway de pagamento (PSP) com cenários de falha | — |
 
 Cada serviço tem o seu banco. Nenhum compartilha código com outro: só os **contratos das mensagens** os ligam.
 
