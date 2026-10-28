@@ -1,0 +1,36 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: inventory-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/inventory
+    username: postgres
+    password: postgres
+  kafka:
+    bootstrap-servers: localhost:29092
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+
+app:
+  kafka:
+    attempts: 4
+    initial-backoff-ms: 2000
+
+outbox:
+  interval-ms: 300
+  # Caso 4: true publica cada evento duas vezes, simulando a redelivery de um rebalance.
+  simulate-duplicate-delivery: ${OUTBOX_SIMULATE_DUPLICATE_DELIVERY:false}
+
+logging:
+  level:
+    org.apache.kafka: WARN

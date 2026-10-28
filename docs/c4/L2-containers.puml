@@ -1,0 +1,43 @@
+@startuml L2-containers
+!include <C4/C4_Container>
+
+title C4 L2 — Containers: checkout com pagamento e NF-e
+
+LAYOUT_TOP_DOWN()
+
+Person(customer, "Cliente / loja", "Faz o checkout e acompanha o pedido")
+
+System_Ext(psp, "PSP (gateway de pagamento)", "Pré-autoriza, captura, cancela (void) e estorna. Na demo: external-simulators /psp")
+System_Ext(sefaz, "SEFAZ", "Autoriza, consulta e registra eventos de NF-e (110111). Na demo: external-simulators /sefaz")
+
+System_Boundary(ecommerce, "Checkout (Saga + Event Sourcing)") {
+    Container(payment, "payment-service", "Java 21, Spring Boot 3", "Checkout Saga (orquestrador) e agregado Payment event-sourced. Solicita a emissão da NF-e")
+    ContainerDb(paymentDb, "payment DB", "PostgreSQL", "payment_events (event store), checkout_saga, outbox, processed_messages, pending_reconciliation")
+
+    Container(fiscal, "fiscal-document-gateway", "Java 21, Spring Boot 3", "Único serviço que fala com a SEFAZ: emite, consulta e cancela NF-e")
+    ContainerDb(fiscalDb, "fiscal DB", "PostgreSQL", "invoice (chave de acesso gravada antes do envio), outbox, processed_messages")
+
+    Container(inventory, "inventory-service", "Java 21, Spring Boot 3", "Reserva e libera estoque (tudo ou nada, idempotente)")
+    ContainerDb(inventoryDb, "inventory DB", "PostgreSQL", "inventory, reservation, outbox, processed_messages")
+
+    ContainerQueue(kafka, "Kafka", "Apache Kafka 3.8 (KRaft)", "payment.*, inventory.*, fiscal.* (commands/events), checkout.events. Cada um com -retry-N e -dlq. Chave = orderId")
+}
+
+Rel(customer, payment, "POST /checkouts, GET /checkouts/{orderId}", "HTTP/JSON")
+
+Rel(payment, paymentDb, "Lê e grava estado + outbox na mesma transação", "JDBC")
+Rel(fiscal, fiscalDb, "Lê e grava", "JDBC")
+Rel(inventory, inventoryDb, "Lê e grava", "JDBC")
+
+Rel(payment, kafka, "Publica payment/inventory/fiscal.commands, payment.events, checkout.events (outbox relay)", "Kafka")
+Rel(kafka, payment, "Consome payment.commands e *.events", "Kafka")
+Rel(kafka, fiscal, "Consome fiscal.commands", "Kafka")
+Rel(fiscal, kafka, "Publica fiscal.events (outbox relay)", "Kafka")
+Rel(kafka, inventory, "Consome inventory.commands", "Kafka")
+Rel(inventory, kafka, "Publica inventory.events (outbox relay)", "Kafka")
+
+Rel(payment, psp, "authorize / capture / void / refund / lookup", "HTTP + Idempotency-Key")
+Rel(fiscal, sefaz, "authorization / lookup por chave / evento 110111", "HTTP/JSON (SOAP na vida real)")
+
+SHOW_LEGEND()
+@enduml

@@ -1,0 +1,46 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: fiscal-document-gateway
+  datasource:
+    url: jdbc:postgresql://localhost:5432/fiscal
+    username: postgres
+    password: postgres
+  kafka:
+    bootstrap-servers: localhost:29092
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+
+sefaz:
+  url: ${SEFAZ_URL:http://localhost:8090/sefaz}
+  read-timeout-ms: 2000
+
+fiscal:
+  cancellation-deadline: PT24H
+  issuer:
+    cnpj: "12345678000195"
+    uf-code: "35"
+    series: 1
+
+app:
+  kafka:
+    attempts: 4
+    initial-backoff-ms: 2000
+
+outbox:
+  interval-ms: 300
+  simulate-duplicate-delivery: ${OUTBOX_SIMULATE_DUPLICATE_DELIVERY:false}
+
+logging:
+  level:
+    org.apache.kafka: WARN

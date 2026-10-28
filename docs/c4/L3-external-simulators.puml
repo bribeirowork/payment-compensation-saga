@@ -1,0 +1,23 @@
+@startuml L3-external-simulators
+!include <C4/C4_Component>
+
+title C4 L3 — Componentes: external-simulators (PSP e SEFAZ simulados)
+
+LAYOUT_LEFT_RIGHT()
+
+Container(payment, "payment-service", "Java 21, Spring Boot 3")
+Container(fiscal, "fiscal-document-gateway", "Java 21, Spring Boot 3")
+Person(dev, "Quem roda a demo", "Liga/desliga falhas")
+
+Container_Boundary(sim, "external-simulators") {
+    Component(pspCtl, "PspController", "Spring MVC, estado em memória", "/psp/authorizations, /{id}/capture, /{id}/cancellation, /{id}/refund, GET /{id}. Cache por Idempotency-Key (5xx não é memorizado). Falhas por cardToken: tok_capture_flaky, tok_capture_declined, tok_capture_down, tok_void_down, tok_auth_declined")
+    Component(pspAdmin, "PspController (admin)", "Spring MVC", "POST /psp/admin/void-unavailable?active=: liga/desliga o void (Caso 6)")
+    Component(sefazCtl, "SefazController", "Spring MVC, estado em memória", "POST /sefaz/nfe/authorization, GET /{key} (100/101/217), POST /{key}/events (110111 → 135, ou 501 fora do prazo). Falhas por NCM: 00000000 (778), 11111111 (resposta lenta), 22222222 (503)")
+}
+
+Rel(payment, pspCtl, "authorize / capture / void / refund / lookup", "HTTP + Idempotency-Key")
+Rel(fiscal, sefazCtl, "authorization / lookup / events", "HTTP/JSON")
+Rel(dev, pspAdmin, "HTTP")
+
+SHOW_LEGEND()
+@enduml

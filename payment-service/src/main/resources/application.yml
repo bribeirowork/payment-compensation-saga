@@ -1,0 +1,46 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: payment-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/payment
+    username: postgres
+    password: postgres
+  kafka:
+    bootstrap-servers: localhost:29092
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+
+psp:
+  url: ${PSP_URL:http://localhost:8090/psp}
+
+checkout:
+  # Quanto tempo a saga espera a captura depois da NF-e autorizada antes de compensar.
+  # O prazo legal de cancelamento da NF-e é, em regra, 24h; 20h deixa margem.
+  capture-deadline: ${CHECKOUT_CAPTURE_DEADLINE:PT20H}
+  deadline-check-interval-ms: 5000
+
+app:
+  kafka:
+    # 1 tentativa no tópico principal + 3 retry topics (2s, 4s, 8s) e então a DLQ.
+    attempts: 4
+    initial-backoff-ms: 2000
+
+outbox:
+  interval-ms: 300
+  simulate-duplicate-delivery: ${OUTBOX_SIMULATE_DUPLICATE_DELIVERY:false}
+
+logging:
+  level:
+    org.apache.kafka: WARN
+    org.springframework.kafka.retrytopic: INFO

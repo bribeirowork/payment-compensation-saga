@@ -1,0 +1,9 @@
+server:
+  port: 8090
+
+simulator:
+  sefaz:
+    # Prazo legal (em regra) para cancelar uma NF-e autorizada.
+    cancellation-deadline: ${SIMULATOR_SEFAZ_CANCELLATION_DEADLINE:PT24H}
+    # Quanto tempo a SEFAZ "demora" para responder no cenário de timeout.
+    slow-delay: PT5S

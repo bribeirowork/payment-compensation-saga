@@ -1,0 +1,67 @@
+@startuml L3-fiscal-document-gateway
+!include <C4/C4_Component>
+
+title C4 L3 — Componentes: fiscal-document-gateway
+
+LAYOUT_LEFT_RIGHT()
+
+Person(ops, "Operação / suporte")
+ContainerQueue(kafka, "Kafka", "Apache Kafka", "fiscal.commands, fiscal.events (+ retry/dlq)")
+ContainerDb(db, "fiscal DB", "PostgreSQL")
+System_Ext(sefaz, "SEFAZ", "Autorização de NF-e")
+
+Container_Boundary(svc, "fiscal-document-gateway") {
+
+    Boundary(infraIn, "infrastructure (adapters de entrada)") {
+        Component(listener, "FiscalCommandsListener", "@KafkaListener + @RetryableTopic", "Consome fiscal.commands (IssueInvoice, CancelInvoice). DLQ → contingência / aviso à saga")
+        Component(controller, "InvoiceController", "Spring MVC", "GET /invoices/{orderId}: chave, status e eventos 110111")
+    }
+
+    Boundary(app, "application (casos de uso)") {
+        Component(service, "InvoiceService", "ManageInvoices", "issue: grava a chave antes de enviar; timeout → STATUS_UNKNOWN e o retry consulta pela chave (Caso 3). cancel: confere o prazo antes (501). issuanceExhausted → PENDING_CONTINGENCY")
+    }
+
+    Boundary(dom, "domain (Java puro)") {
+        Component(invoice, "Invoice", "Agregado", "InvoiceStatus, SefazEvent (110111/110110), withinCancellationDeadline, justificativa 15–255")
+        Component(accessKey, "AccessKey", "Value object", "44 dígitos, DV módulo 11")
+        Component(issuer, "Issuer / Recipient / InvoiceItem", "Value objects")
+        Component(events, "FiscalEvent", "Eventos publicados", "InvoiceAuthorized, InvoiceRejected, InvoiceCancelled, InvoiceCancellationRejected")
+    }
+
+    Boundary(infraOut, "infrastructure (adapters de saída)") {
+        Component(httpSefaz, "HttpSefaz", "Sefaz / RestClient", "SocketTimeout → SefazTimeoutException; 5xx → TransientFailureException")
+        Component(repo, "JdbcInvoiceRepository", "InvoiceRepository", "Tabela invoice + sequence invoice_number_seq")
+        Component(inbox, "JdbcInbox", "Inbox", "processed_messages")
+        Component(publisher, "OutboxFiscalEventPublisher", "FiscalEventPublisher", "FiscalEvent → outbox (fiscal.events)")
+        Component(outbox, "JdbcOutbox", "JDBC", "Tabela outbox")
+        Component(relay, "OutboxRelay", "@Scheduled", "Polling → KafkaTemplate")
+        Component(tx, "SpringTransaction", "UnitOfWork", "TransactionTemplate")
+    }
+}
+
+Rel(kafka, listener, "fiscal.commands")
+Rel(ops, controller, "HTTP/JSON")
+Rel(listener, service, "issue / cancel / *Exhausted")
+Rel(controller, service, "ManageInvoices")
+
+Rel(service, invoice, "Usa")
+Rel(invoice, accessKey, "Gera")
+Rel(invoice, issuer, "Contém")
+Rel(service, events, "Cria")
+
+Rel(service, httpSefaz, "Usa (fora da transação)")
+Rel(service, repo, "Usa")
+Rel(service, inbox, "Usa")
+Rel(service, publisher, "Usa")
+Rel(service, tx, "Usa")
+
+Rel(publisher, outbox, "Grava")
+Rel(repo, db, "JDBC")
+Rel(inbox, db, "JDBC")
+Rel(outbox, db, "JDBC")
+Rel(relay, db, "Lê pendentes", "JDBC")
+Rel(relay, kafka, "fiscal.events")
+Rel(httpSefaz, sefaz, "authorization / lookup / events", "HTTP")
+
+SHOW_LEGEND()
+@enduml

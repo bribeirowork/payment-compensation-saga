@@ -1,0 +1,121 @@
+### Cenários do artigo — use com o REST Client do VS Code ou o HTTP Client do IntelliJ.
+### Depois de cada POST, acompanhe a saga em GET /checkouts/{orderId}.
+
+@payment = http://localhost:8080
+@fiscal = http://localhost:8082
+@inventory = http://localhost:8081
+@sim = http://localhost:8090
+
+### Caminho feliz: T1..T5, captura por último (pivô)
+POST {{payment}}/checkouts
+Content-Type: application/json
+
+{
+  "orderId": "happy-path-001",
+  "customer": { "name": "Maria Silva", "document": "12345678909" },
+  "items": [ { "sku": "SKU-TSHIRT", "description": "T-shirt", "ncm": "61091000", "quantity": 2, "unitPrice": 59.90 } ],
+  "cardToken": "tok_ok"
+}
+
+### Caso 1: SEFAZ rejeita (NCM 00000000) -> ReservationReleased -> AuthorizationVoided -> OrderCancelled
+POST {{payment}}/checkouts
+Content-Type: application/json
+
+{
+  "orderId": "case1-001",
+  "customer": { "name": "Maria Silva", "document": "12345678909" },
+  "items": [ { "sku": "SKU-TSHIRT", "description": "T-shirt", "ncm": "00000000", "quantity": 1, "unitPrice": 59.90 } ],
+  "cardToken": "tok_ok"
+}
+
+### Caso 2a: captura falha 2x (503) e passa no retry topic
+POST {{payment}}/checkouts
+Content-Type: application/json
+
+{
+  "orderId": "case2a-001",
+  "customer": { "name": "Maria Silva", "document": "12345678909" },
+  "items": [ { "sku": "SKU-TSHIRT", "description": "T-shirt", "ncm": "61091000", "quantity": 1, "unitPrice": 59.90 } ],
+  "cardToken": "tok_capture_flaky"
+}
+
+### Caso 2b: captura recusada de forma definitiva depois da NF-e -> cancela NF-e (110111)
+POST {{payment}}/checkouts
+Content-Type: application/json
+
+{
+  "orderId": "case2b-001",
+  "customer": { "name": "Maria Silva", "document": "12345678909" },
+  "items": [ { "sku": "SKU-TSHIRT", "description": "T-shirt", "ncm": "61091000", "quantity": 1, "unitPrice": 59.90 } ],
+  "cardToken": "tok_capture_declined"
+}
+
+### Caso 2c: captura nunca responde -> DLQ -> prazo da saga (60s na demo) cancela a NF-e
+POST {{payment}}/checkouts
+Content-Type: application/json
+
+{
+  "orderId": "case2c-001",
+  "customer": { "name": "Maria Silva", "document": "12345678909" },
+  "items": [ { "sku": "SKU-TSHIRT", "description": "T-shirt", "ncm": "61091000", "quantity": 1, "unitPrice": 59.90 } ],
+  "cardToken": "tok_capture_down"
+}
+
+### Caso 3: SEFAZ autoriza mas responde depois do timeout -> consulta pela chave, sem reemitir
+POST {{payment}}/checkouts
+Content-Type: application/json
+
+{
+  "orderId": "case3-001",
+  "customer": { "name": "Maria Silva", "document": "12345678909" },
+  "items": [ { "sku": "SKU-TSHIRT", "description": "T-shirt", "ncm": "11111111", "quantity": 1, "unitPrice": 59.90 } ],
+  "cardToken": "tok_ok"
+}
+
+### Caso 6: compensação (void) fora do ar -> retries -> DLQ -> AWAITING_RECONCILIATION
+POST {{payment}}/checkouts
+Content-Type: application/json
+
+{
+  "orderId": "case6-001",
+  "customer": { "name": "Maria Silva", "document": "12345678909" },
+  "items": [ { "sku": "SKU-TSHIRT", "description": "T-shirt", "ncm": "00000000", "quantity": 1, "unitPrice": 59.90 } ],
+  "cardToken": "tok_void_down"
+}
+
+### Caso 6 (cont.): o gateway voltou...
+POST {{sim}}/psp/admin/void-unavailable?active=false
+
+### Caso 6 (cont.): ...lista as pendências de conciliação
+GET {{payment}}/reconciliations
+
+### Caso 6 (cont.): ...e reprocessa (troque o id)
+POST {{payment}}/reconciliations/1/reprocess
+
+### Estoque indisponível (compensa só o pagamento)
+POST {{payment}}/checkouts
+Content-Type: application/json
+
+{
+  "orderId": "out-of-stock-001",
+  "customer": { "name": "Maria Silva", "document": "12345678909" },
+  "items": [ { "sku": "SKU-SOLD-OUT", "description": "Rare mug", "ncm": "69120000", "quantity": 1, "unitPrice": 39.90 } ],
+  "cardToken": "tok_ok"
+}
+
+### --- Observabilidade ---
+
+### Em que passo está o pedido?
+GET {{payment}}/checkouts/case1-001
+
+### Stream de eventos do pagamento (use o paymentId devolvido acima)
+GET {{payment}}/payments/00000000-0000-0000-0000-000000000000
+
+### NF-e do pedido (chave, status, eventos 110111)
+GET {{fiscal}}/invoices/case2b-001
+
+### Saldo de estoque
+GET {{inventory}}/inventory
+
+### Transações no PSP (charges deve ser sempre 0 ou 1)
+GET {{sim}}/psp/authorizations

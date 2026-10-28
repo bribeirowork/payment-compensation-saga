@@ -1,0 +1,64 @@
+@startuml L3-inventory-service
+!include <C4/C4_Component>
+
+title C4 L3 — Componentes: inventory-service
+
+LAYOUT_LEFT_RIGHT()
+
+Person(ops, "Operação / suporte")
+ContainerQueue(kafka, "Kafka", "Apache Kafka", "inventory.commands, inventory.events (+ retry/dlq)")
+ContainerDb(db, "inventory DB", "PostgreSQL")
+
+Container_Boundary(svc, "inventory-service") {
+
+    Boundary(infraIn, "infrastructure (adapters de entrada)") {
+        Component(listener, "InventoryCommandsListener", "@KafkaListener + @RetryableTopic", "Consome inventory.commands (ReserveInventory, ReleaseReservation). DLQ → alerta")
+        Component(controller, "InventoryController", "Spring MVC", "GET /inventory: saldo por SKU")
+    }
+
+    Boundary(app, "application (casos de uso)") {
+        Component(service, "InventoryService", "ManageInventory", "Reserva tudo ou nada; liberar é idempotente e sempre publica ReservationReleased")
+    }
+
+    Boundary(dom, "domain (Java puro)") {
+        Component(reservation, "Reservation", "Agregado", "place (tudo ou nada), release idempotente")
+        Component(stockItem, "StockItem", "Entidade", "fits / reserve / restock")
+        Component(events, "InventoryEvent", "Eventos publicados", "InventoryReserved, InventoryUnavailable, ReservationReleased")
+    }
+
+    Boundary(infraOut, "infrastructure (adapters de saída)") {
+        Component(invRepo, "JdbcInventoryRepository", "InventoryRepository", "SELECT ... FOR UPDATE ordenado por SKU (evita deadlock)")
+        Component(resRepo, "JdbcReservationRepository", "ReservationRepository", "Tabela reservation")
+        Component(inbox, "JdbcInbox", "Inbox", "processed_messages")
+        Component(publisher, "OutboxInventoryEventPublisher", "InventoryEventPublisher", "InventoryEvent → outbox (inventory.events)")
+        Component(outbox, "JdbcOutbox", "JDBC", "Tabela outbox")
+        Component(relay, "OutboxRelay", "@Scheduled", "Polling → KafkaTemplate. Publica 2x de propósito (Caso 4)")
+        Component(tx, "SpringTransaction", "UnitOfWork", "TransactionTemplate")
+    }
+}
+
+Rel(kafka, listener, "inventory.commands")
+Rel(ops, controller, "HTTP/JSON")
+Rel(listener, service, "reserve / release")
+Rel(controller, service, "ManageInventory")
+
+Rel(service, reservation, "Usa")
+Rel(reservation, stockItem, "Debita / devolve")
+Rel(service, events, "Cria")
+
+Rel(service, invRepo, "Usa")
+Rel(service, resRepo, "Usa")
+Rel(service, inbox, "Usa")
+Rel(service, publisher, "Usa")
+Rel(service, tx, "Usa")
+
+Rel(publisher, outbox, "Grava")
+Rel(invRepo, db, "JDBC")
+Rel(resRepo, db, "JDBC")
+Rel(inbox, db, "JDBC")
+Rel(outbox, db, "JDBC")
+Rel(relay, db, "Lê pendentes", "JDBC")
+Rel(relay, kafka, "inventory.events")
+
+SHOW_LEGEND()
+@enduml

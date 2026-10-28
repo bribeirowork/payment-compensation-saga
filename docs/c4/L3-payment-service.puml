@@ -1,0 +1,91 @@
+@startuml L3-payment-service
+!include <C4/C4_Component>
+
+title C4 L3 — Componentes: payment-service
+
+LAYOUT_LEFT_RIGHT()
+
+Person(customer, "Cliente / loja")
+ContainerQueue(kafka, "Kafka", "Apache Kafka", "payment.*, inventory.*, fiscal.*, checkout.events (+ retry/dlq)")
+ContainerDb(db, "payment DB", "PostgreSQL")
+System_Ext(psp, "PSP", "Gateway de pagamento")
+
+Container_Boundary(svc, "payment-service") {
+
+    Boundary(infraIn, "infrastructure (adapters de entrada)") {
+        Component(checkoutCtl, "CheckoutController", "Spring MVC", "POST /checkouts, GET /checkouts/{orderId}")
+        Component(paymentCtl, "PaymentController", "Spring MVC", "GET /payments/{paymentId}: stream de eventos v1..vN")
+        Component(reconCtl, "ReconciliationController", "Spring MVC", "GET /reconciliations, POST /reconciliations/{id}/reprocess")
+        Component(sagaListener, "CheckoutSagaListener", "@KafkaListener + @RetryableTopic", "Consome payment.events, inventory.events, fiscal.events. DLQ → conciliação")
+        Component(paymentListener, "PaymentCommandsListener", "@KafkaListener + @RetryableTopic", "Consome payment.commands. DLQ → conciliação (Caso 6)")
+        Component(scheduler, "SagaDeadlineScheduler", "@Scheduled", "Verifica o prazo de captura (20h) das sagas")
+    }
+
+    Boundary(app, "application (casos de uso)") {
+        Component(sagaSvc, "CheckoutSagaService", "ManageCheckout, DriveSaga", "Inbox + novo estado da saga + comandos no outbox, numa transação")
+        Component(paymentSvc, "PaymentService", "ExecutePaymentCommands", "Intenção (tx) → chamada ao PSP fora da tx → resultado (tx). Consulta o PSP quando o estado é desconhecido")
+        Component(reconSvc, "ReconciliationService", "Reconcile", "Registra falhas definitivas, avisa a saga (CompensationExhausted) e reprocessa")
+    }
+
+    Boundary(dom, "domain (Java puro)") {
+        Component(saga, "CheckoutSaga", "Máquina de estados", "T1..T5, compensação em ordem reversa, prazos, AWAITING_RECONCILIATION / MANUAL_INTERVENTION")
+        Component(payment, "Payment", "Agregado event-sourced", "PaymentEvent (sealed), CompensationAction: VOID_AUTHORIZATION / REFUND / QUERY_PSP / NONE")
+    }
+
+    Boundary(infraOut, "infrastructure (adapters de saída)") {
+        Component(eventStore, "JdbcPaymentEventStore", "PaymentEventStore", "PK (payment_id, version): concorrência otimista. Evento + outbox na mesma tx")
+        Component(sagaRepo, "JdbcSagaRepository", "SagaRepository", "checkout_saga + histórico, com versão")
+        Component(inbox, "JdbcInbox", "Inbox", "processed_messages (consumer, message_id)")
+        Component(reconLog, "JdbcReconciliationLog", "ReconciliationLog", "pending_reconciliation")
+        Component(publisher, "OutboxMessagePublisher", "MessagePublisher", "Envelope {id, type, orderId, occurredAt, payload} → outbox")
+        Component(outbox, "JdbcOutbox", "JDBC", "Tabela outbox")
+        Component(relay, "OutboxRelay", "@Scheduled", "Polling FOR UPDATE SKIP LOCKED → KafkaTemplate")
+        Component(pspClient, "HttpPaymentProvider", "PaymentProvider / RestClient", "5xx e timeout → TransientFailureException")
+        Component(tx, "SpringTransaction", "UnitOfWork", "TransactionTemplate")
+    }
+}
+
+Rel(customer, checkoutCtl, "HTTP/JSON")
+Rel(customer, paymentCtl, "HTTP/JSON")
+Rel(customer, reconCtl, "Operação / suporte", "HTTP/JSON")
+
+Rel(kafka, sagaListener, "*.events")
+Rel(kafka, paymentListener, "payment.commands")
+
+Rel(checkoutCtl, sagaSvc, "ManageCheckout")
+Rel(paymentCtl, paymentSvc, "lookup")
+Rel(reconCtl, reconSvc, "Reconcile")
+Rel(sagaListener, sagaSvc, "DriveSaga.process")
+Rel(sagaListener, reconSvc, "DLQ")
+Rel(paymentListener, paymentSvc, "authorize / capture / compensate")
+Rel(paymentListener, reconSvc, "DLQ")
+Rel(scheduler, sagaSvc, "DriveSaga.checkDeadlines")
+Rel(reconSvc, sagaSvc, "CompensationExhausted")
+
+Rel(sagaSvc, saga, "Usa")
+Rel(paymentSvc, payment, "Usa")
+
+Rel(sagaSvc, sagaRepo, "Usa")
+Rel(sagaSvc, inbox, "Usa")
+Rel(sagaSvc, publisher, "Comandos e eventos do pedido")
+Rel(sagaSvc, tx, "Usa")
+Rel(paymentSvc, eventStore, "Usa")
+Rel(paymentSvc, inbox, "Usa")
+Rel(paymentSvc, pspClient, "Usa")
+Rel(paymentSvc, tx, "Usa")
+Rel(reconSvc, reconLog, "Usa")
+Rel(reconSvc, publisher, "Reenvia a mensagem original")
+
+Rel(eventStore, outbox, "PaymentEvent → payment.events")
+Rel(publisher, outbox, "Grava")
+Rel(eventStore, db, "JDBC")
+Rel(sagaRepo, db, "JDBC")
+Rel(inbox, db, "JDBC")
+Rel(reconLog, db, "JDBC")
+Rel(outbox, db, "JDBC")
+Rel(relay, db, "Lê pendentes", "JDBC")
+Rel(relay, kafka, "Publica (at-least-once)")
+Rel(pspClient, psp, "HTTP + Idempotency-Key")
+
+SHOW_LEGEND()
+@enduml
